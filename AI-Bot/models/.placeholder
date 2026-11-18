@@ -1,0 +1,27 @@
+AI-Bot pendrive package — placeholder for Qwen GGUF models.
+============================================================
+
+Place the quantized Qwen GGUF model files here. The bot expects:
+
+Required (choose at least one):
+  models/qwen2.5-1.5b-instruct-q4_k_m.gguf   (~0.94 GB)
+  models/qwen2.5-3b-instruct-q4_k_m.gguf     (~1.94 GB)
+
+Optional (16 GB RAM PCs only):
+  models/qwen2.5-7b-instruct-q4_k_m.gguf     (~4.70 GB)
+
+Download from Hugging Face (Qwen / Qwen2.5 series, GGUF, Q4_K_M):
+
+  Qwen2.5-1.5B-Instruct Q4_K_M:
+    https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF
+    File: qwen2.5-1.5b-instruct-q4_k_m.gguf
+
+  Qwen2.5-3B-Instruct Q4_K_M:
+    https://huggingface.co/Qwen/Qwen2.5-3B-Instruct-GGUF
+    File: qwen2.5-3b-instruct-q4_k_m.gguf
+
+  Qwen2.5-7B-Instruct Q4_K_M (optional):
+    https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF
+    File: qwen2.5-7b-instruct-q4_k_m.gguf
+
+Total pendrive usage with both required models stays well under 6.5 GB.

@@ -1,0 +1,13 @@
+# AI Bot server logs
+ai-bot-server.log
+*.log
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# Temporary files
+*.tmp
+*.temp

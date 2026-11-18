@@ -1,0 +1,21 @@
+AI-Bot pendrive package — placeholder for llama-server binaries.
+================================================================
+
+Place the portable llama.cpp server binary here.
+
+Required (CPU build, Windows):
+  bin/llama-server.exe
+
+Optional (Vulkan GPU build, Windows):
+  bin/llama-server-vulkan.exe
+
+Linux/macOS:
+  bin/llama-server
+
+Download llama.cpp releases (look for the "llama-server" binary):
+  https://github.com/ggerganov/llama.cpp/releases
+
+Choose a recent release (e.g. b4248 or later) and grab the CPU-only
+binary for your platform. The binary is ~40-70 MB.
+
+No installation is required — just copy the .exe into this bin folder.

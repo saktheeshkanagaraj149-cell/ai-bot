@@ -1,0 +1,1408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Bot — Offline Qwen Chatbot</title>
+<style>
+/* ========================================================================
+   AI Bot — Single-file chat UI. No CDN, no external dependencies.
+   Dark / light mode via CSS custom properties on html.dark
+   ======================================================================== */
+:root {
+  --bg: #f5f7fa;
+  --panel: #ffffff;
+  --sidebar: #f1f3f5;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #d1d5db;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --bubble-user: #dbeafe;
+  --bubble-ai: #f3f4f6;
+  --tool-bg: #f3f4f6;
+  --code-bg: #1f2937;
+  --danger: #dc2626;
+  --ok: #22c55e;
+  --warn: #eab308;
+  --shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+html.dark {
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --sidebar: #0f172a;
+  --text: #f8fafc;
+  --muted: #94a3b8;
+  --border: #334155;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --bubble-user: #1e3a8a;
+  --bubble-ai: #111827;
+  --tool-bg: #111827;
+  --code-bg: #0f172a;
+  --danger: #ef4444;
+  --ok: #4ade80;
+  --warn: #fbbf24;
+  --shadow: 0 1px 2px rgba(0,0,0,0.4);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg); color: var(--text);
+  height: 100vh; overflow: hidden; transition: background 0.2s, color 0.2s;
+}
+a { color: var(--accent); text-decoration: none; }
+button {
+  font: inherit; cursor: pointer; border: 1px solid var(--border);
+  background: var(--panel); color: var(--text); border-radius: 8px;
+  padding: 6px 12px; transition: background 0.1s, border-color 0.1s;
+}
+button:hover { background: #e5e7eb; border-color: var(--muted); }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary:hover { background: var(--accent-hover); }
+button.danger { background: transparent; color: var(--danger); border-color: var(--danger); }
+button.danger:hover { background: rgba(220,38,38,0.1); }
+button.secondary { background: transparent; color: var(--muted); }
+button.secondary:hover { background: #e5e7eb; color: var(--text); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+input, select, textarea {
+  font: inherit; background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+}
+textarea { resize: vertical; }
+hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+
+/* ================= Layout ================= */
+.app { display: flex; height: 100vh; }
+
+/* Sidebar */
+.sidebar {
+  width: 260px; background: var(--sidebar); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; z-index: 10;
+}
+.sidebar-header { padding: 12px 16px; border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 15px; }
+.new-chat { width: 100%; text-align: left; padding: 10px 16px; border: none;
+  background: transparent; color: var(--text); font-weight: 600; font-size: 13px;
+  display: flex; align-items: center; gap: 8px; }
+.new-chat:hover { background: rgba(0,0,0,0.04); }
+#chat-list { flex: 1; overflow-y: auto; padding: 6px 2px; }
+.chat-item { padding: 8px 12px; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; justify: space-between; gap: 8px; font-size: 13px; }
+.chat-item:hover { background: rgba(0,0,0,0.05); }
+.chat-item.active { background: var(--accent); color: #fff; }
+.chat-item.active .chat-title { color: #fff; }
+.chat-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.chat-meta { font-size: 11px; color: var(--muted); }
+.chat-item.active .chat-meta { color: rgba(255,255,255,0.75); }
+.chat-actions { opacity: 0; display: flex; gap: 4px; }
+.chat-item:hover .chat-actions { opacity: 1; }
+.action-btn { background: transparent; border: none; color: var(--muted); padding: 4px; }
+.action-btn:hover { color: var(--danger); background: rgba(220,38,38,0.1); border-radius: 4px; }
+.chat-item.active .action-btn { color: rgba(255,255,255,0.9); }
+.sidebar-footer { padding: 10px 16px; border-top: 1px solid var(--border);
+  display: flex; gap: 8px; }
+
+/* Mobile sidebar overlay */
+@media (max-width: 768px) {
+  .sidebar { position: absolute; left: 0; top: 0; bottom: 0; width: 260px;
+    transform: translateX(-100%); transition: transform 0.2s; z-index: 25;
+    box-shadow: 4px 0 12px rgba(0,0,0,0.15); }
+  .sidebar.open { transform: translateX(0); }
+  .main { flex: 1; }
+}
+
+/* ================= Main ================= */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+
+/* Topbar */
+.topbar {
+  height: 52px; background: var(--panel); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between; padding: 0 16px;
+  flex-shrink: 0; z-index: 20;
+}
+@media (max-width: 768px) { .topbar { position: sticky; top: 0; z-index: 30; } }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.dot.ok   { background: var(--ok); box-shadow: 0 0 0 2px rgba(74,222,128,0.25); }
+.dot.warn { background: var(--warn); }
+.dot.err  { background: var(--danger); box-shadow: 0 0 0 2px rgba(239,68,68,0.3); }
+.status { font-size: 12.5px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
+.status b { color: var(--text); }
+
+.controls { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.theme-toggle, .agent-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.switch { position: relative; width: 40px; height: 22px; background: var(--border); border-radius: 11px; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.knob { position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; background: #fff; border-radius: 50%; transition: transform 0.2s; box-shadow: 0 1px 3px rgba(0,0,0,0.25); }
+.switch input:checked + .knob { transform: translateX(18px); background: var(--accent); }
+
+/* Status banner (errors) */
+#status-banner {
+  display: none; padding: 8px 16px; font-size: 13px; color: var(--text);
+  background: rgba(220,38,38,0.1); border: 1px solid rgba(220,38,38,0.2);
+  border-radius: 8px; margin: 10px 16px; align-items: center; gap: 10px;
+}
+
+/* Chat area */
+#chat-messages {
+  flex: 1; overflow-y: auto; padding: 20px 16px; display: flex; flex-direction: column; gap: 14px;
+  scroll-behavior: smooth;
+}
+.empty-state { margin-top: 60px; text-align: center; color: var(--muted); font-size: 15px; }
+
+/* Message bubbles */
+.message { display: flex; gap: 10px; max-width: 72%; animation: fadeIn 0.15s ease both; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.message.user { flex-direction: row-reverse; align-self: flex-end; }
+.message .avatar { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center;
+  font-size: 14px; flex-shrink: 0; }
+.message.user .avatar { background: var(--bubble-user); color: #1e40af; }
+.message .bubble { padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.55; white-space: pre-wrap;
+  border: 1px solid var(--border); position: relative; }
+.message.user .bubble { background: var(--bubble-user); border-color: var(--border); color: var(--text); }
+.message.ai .bubble { background: var(--bubble-ai); color: var(--text); }
+.message.system .bubble { background: rgba(0,0,0,0.03); border: 1px dashed var(--border); font-size: 12px; color: var(--moved);
+  color: var(--muted); font-style: italic; padding: 8px 12px; }
+.message .meta { font-size: 11.5px; color: var(--muted); margin-top: 4px; display: block; }
+
+/* Tool collapsible steps */
+.tool-step { margin: 8px 0 0 0; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--tool-bg); overflow: hidden; display: flex; flex-direction: column; }
+.tool-step summary {
+  padding: 8px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  background: rgba(0,0,0,0.03); list-style: none; display: flex; justify-content: space-between; align-items: center;
+}
+html.dark .tool-step summary { background: rgba(255,255,255,0.03); }
+.tool-step summary::marker { display: none; }
+.tool-step .badge { font-size: 10px; padding: 1px 6px; border-radius: 6px; background: var(--border);
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.tool-step .step-body { padding: 10px 12px; font-size: 13px; white-space: pre-wrap; color: var(--muted); }
+.tool-step .step-result { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--border); }
+
+/* Code blocks (built-in renderer) */
+pre code { display: block; }
+.code-wrap { position: relative; margin: 8px 0; }
+.code-wrap pre { margin: 0; border-radius: 8px; overflow: auto; }
+.code-wrap .copy-btn {
+  position: absolute; top: 8px; right: 8px; font-size: 11.5px; padding: 3px 8px;
+  background: rgba(0,0,0,0.25); color: #fff; border: 1px solid rgba(255,255,255,0.25);
+}
+html.dark .code-wrap .copy-btn { background: rgba(255,255,255,0.12); border-color: rgba(255,255,255,0.2); }
+.code-wrap .copy-btn.copied { background: var(--ok); border-color: var(--ok); }
+pre { background: var(--code-bg); color: #e5e7eb; padding: 12px 16px; border-radius: 8px;
+  font-size: 13px; line-height: 1.5; overflow: auto; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em; background: rgba(0,0,0,0.06); padding: 1px 6px; border-radius: 4px; }
+html.dark code { background: rgba(255,255,255,0.08); }
+
+/* Markdown */
+.bubble h1, .bubble h2, .bubble h3, .bubble h4 { margin: 10px 0 6px; line-height: 1.3; }
+.bubble h1 { font-size: 1.5em; } .bubble h2 { font-size: 1.3em; } .bubble h3 { font-size: 1.15em; }
+.bubble p { margin: 6px 0; }
+.bubble ul, .bubble ol { margin: 6px 0 6px 22px; }
+.bubble li { margin: 3px 0; }
+.bubble blockquote { border-left: 3px solid var(--accent); margin: 8px 0; padding: 4px 14px;
+  color: var(--muted); background: rgba(0,0,0,0.03); }
+.bubble hr { margin: 10px 0; }
+.bubble a { color: var(--accent); }
+.bubble table { border-collapse: collapse; margin: 8px 0; font-size: 13px; }
+.bubble table th, .bubble table td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+.bubble table th { background: rgba(0,0,0,0.04); }
+
+/* Input area */
+.input-area {
+  padding: 14px 16px; background: var(--panel); border-top: 1px solid var(--border);
+  flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
+}
+@media (max-width: 768px) { .input-area { padding: 10px 12px; } }
+
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.label { font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.flex-1 { flex: 1; min-width: 140px; }
+
+#model-select { padding: 6px 10px; font-size: 13px; min-width: 170px; }
+.temp-wrap { display: flex; align-items: center; gap: 8px; }
+#temp-slider { flex: 1; min-width: 120px; }
+#temp-val { font-size: 12.5px; color: var(--muted); min-width: 28px; }
+
+.sys-prompt { border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 10px; }
+.sys-prompt .row { margin-bottom: 8px; }
+#sys-prompt { width: 100%; min-height: 60px; font-size: 13px; }
+.sys-prompt .hint { font-size: 11.5px; color: var(--muted); margin-top: 4px; }
+
+.compose { display: flex; gap: 8px; margin-top: 2px; }
+#user-input { flex: 1; min-height: 44px; padding: 10px 14px; font-size: 14px; }
+#send-btn { padding: 0 20px; min-width: 80px; font-weight: 700; font-size: 14px; }
+#stop-btn { display: none; padding: 0 18px; min-width: 80px; background: var(--panel); color: var(--danger);
+  border-color: var(--danger); font-weight: 700; }
+#stop-btn:hover { background: rgba(220,38,38,0.1); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* Overlay hint for mobile */
+.mobile-menu-btn { display: none; background: none; border: none; font-size: 20px; color: var(--text); padding: 6px; }
+@media (max-width: 768px) { .mobile-menu-btn { display: block; } }
+.backdrop { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 22; }
+.backdrop.visible { display: block; }
+
+/* Utility */
+.hidden { display: none !important; }
+.small { font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <button class="mobile-menu-btn" id="menu-btn" aria-label="Open menu">☰</button>
+      Chats
+    </div>
+    <button class="new-chat" id="new-chat-btn" title="New chat">✚ New chat</button>
+    <div id="chat-list"></div>
+    <div class="sidebar-footer">
+      <button class="secondary" id="export-json-btn" title="Export all chats (JSON)">⤓ JSON</button>
+      <button class="secondary" id="export-md-btn" title="Export current chat (Markdown)">⤓ MD</button>
+      <button class="secondary" id="clear-db-btn" title="Clear all history">🗑</button>
+    </div>
+  </aside>
+
+  <div class="backdrop" id="backdrop"></div>
+
+  <!-- Main -->
+  <div class="main">
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot" id="status-dot" class="dot err"></span>
+        <span id="status-text">Server not running</span>
+      </div>
+      <div class="controls">
+        <div class="theme-toggle" id="theme-toggle" role="switch" aria-checked="false">
+          <span>���� Theme</span>
+          <label class="switch"><input type="checkbox" id="theme-checkbox"><span class="knob"></span></label>
+        </div>
+        <div class="agent-toggle" id="agent-toggle" role="switch" aria-checked="false" title="Agent mode lets the model use tools">
+          <span>Agent</span>
+          <label class="switch"><input type="checkbox" id="agent-checkbox"><span class="knob"></span></label>
+        </div>
+      </div>
+    </header>
+
+    <div id="status-banner" role="alert">
+      <strong id="status-banner-title">Error</strong><span id="status-banner-msg"></span>
+    </div>
+
+    <div id="chat-messages">
+      <div class="empty-state">Start a new chat to begin.<br>
+      <span class="small">Make sure llama-server is running on http://127.0.0.1:8080</span></div>
+    </div>
+
+    <div class="input-area">
+      <!-- System prompt (editable) -->
+      <div class="sys-prompt">
+        <div class="row">
+          <span class="label">System prompt</span>
+          <span class="small" id="sys-len">0 chars</span>
+        </div>
+        <textarea id="sys-prompt" placeholder="You are a helpful, concise assistant..."></textarea>
+        <div class="hint">Tip: In Agent mode, add instructions like "Use tools when helpful. Output tool calls as JSON: {"tool":"calculator","args":{...}}"</div>
+      </div>
+
+      <!-- Model + temperature + agent toggle row -->
+      <div class="row">
+        <span class="label">Model</span>
+        <select id="model-select" class="flex-1">
+          <option value="auto">Auto (current server model)</option>
+          <option value="qwen2.5-1.5b-instruct-q4_k_m.gguf">Qwen2.5-1.5B-Instruct (fast)</option>
+          <option value="qwen2.5-3b-instruct-q4_k_m.gguf">Qwen2.5-3B-Instruct (quality)</option>
+        </select>
+        <div class="temp-wrap flex-1" style="max-width: 260px;">
+          <span class="label">Temperature</span>
+          <input type="range" id="temp-slider" min="0" max="2" step="0.1" value="0.7">
+          <span id="temp-val">0.7</span>
+        </div>
+      </div>
+
+      <!-- Compose -->
+      <div class="compose">
+        <textarea id="user-input" rows="1" placeholder="Type a message… (Shift+Enter = newline)"></textarea>
+        <button class="primary" id="send-btn">Send</button>
+        <button id="stop-btn">Stop</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ========================================================================
+   AI Bot — Application logic (single file, no external dependencies)
+   ======================================================================== */
+
+const API_BASE = 'http://127.0.0.1:8080';
+const CHAT_COMPLETION_URL = API_BASE + '/v1/chat/completions';
+const HEALTH_URL = API_BASE + '/health';
+
+const MAX_TOOL_ROUNDS = 5;
+
+// DOM elements
+const els = {
+  statusDot: document.getElementById('status-dot'),
+  statusText: document.getElementById('status-text'),
+  statusBanner: document.getElementById('status-banner'),
+  bannerTitle: document.getElementById('status-banner-title'),
+  bannerMsg: document.getElementById('status-banner-msg'),
+  messages: document.getElementById('chat-messages'),
+  userInput: document.getElementById('user-input'),
+  sendBtn: document.getElementById('send-btn'),
+  stopBtn: document.getElementById('stop-btn'),
+  modelSelect: document.getElementById('model-select'),
+  tempSlider: document.getElementById('temp-slider'),
+  tempVal: document.getElementById('temp-val'),
+  sysPrompt: document.getElementById('sys-prompt'),
+  sysLen: document.getElementById('sys-len'),
+  chatList: document.getElementById('chat-list'),
+  newChatBtn: document.getElementById('new-chat-btn'),
+  exportJsonBtn: document.getElementById('export-json-btn'),
+  exportMdBtn: document.getElementById('export-md-btn'),
+  clearDbBtn: document.getElementById('clear-db-btn'),
+  themeCheckbox: document.getElementById('theme-checkbox'),
+  agentCheckbox: document.getElementById('agent-checkbox'),
+  menuBtn: document.getElementById('menu-btn'),
+  sidebar: document.getElementById('sidebar'),
+  backdrop: document.getElementById('backdrop'),
+};
+
+// -----------------------------------------------------------------------
+// State
+// -----------------------------------------------------------------------
+let state = {
+  currentChatId: null,           // id of the active chat
+  chats: {},                     // id -> {id, title, updatedAt, messages:[]}
+  agentMode: false,
+  abortController: null,         // current fetch AbortController
+  toolFileContents: {},          // filename -> text (loaded files for search)
+  db: null,                      // IDBDatabase
+  ready: false,                  // DB initialized
+  lastTokensPerSec: 0,
+};
+
+let ui = {
+  currentAssistantEl: null,      // bubble being streamed into
+  currentAssistantText: '',      // accumulated text
+  streaming: false,
+};
+
+// -----------------------------------------------------------------------
+// Theme
+// -----------------------------------------------------------------------
+function applyTheme(dark) {
+  if (dark) document.documentElement.classList.add('dark');
+  else document.documentElement.classList.remove('dark');
+  localStorage.setItem('ai-bot-theme', dark ? 'dark' : 'light');
+}
+function initTheme() {
+  const saved = localStorage.getItem('ai-bot-theme');
+  const dark = saved ? saved === 'dark' : window.matchMedia('(prefers-color-scheme: dark)').matches;
+  els.themeCheckbox.checked = dark;
+  applyTheme(dark);
+}
+els.themeCheckbox.addEventListener('change', (e) => applyTheme(e.target.checked));
+
+// -----------------------------------------------------------------------
+// Agent mode toggle
+// -----------------------------------------------------------------------
+function setAgentMode(on) {
+  state.agentMode = on;
+  els.agentCheckbox.checked = on;
+  localStorage.setItem('ai-bot-agent', on ? '1' : '0');
+  showBanner(!on ? null : 'Agent mode ON — the model may use built-in tools.', 'info');
+}
+function initAgentMode() {
+  const saved = localStorage.getItem('ai-bot-agent');
+  setAgentMode(saved ? saved === '1' : false);
+}
+els.agentCheckbox.addEventListener('change', (e) => setAgentMode(e.target.checked));
+
+// -----------------------------------------------------------------------
+// IndexedDB persistence
+// -----------------------------------------------------------------------
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('ai-bot-db', 1);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('chats')) {
+        const store = db.createObjectStore('chats', { keyPath: 'id' });
+        store.createIndex('updatedAt', 'updatedAt', { unique: false });
+      }
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+function dbLoadAll() {
+  return new Promise((resolve, reject) => {
+    const tx = state.db.transaction(['chats'], 'readonly');
+    const store = tx.objectStore('chats');
+    const all = [];
+    store.openCursor().onsuccess = (e) => {
+      const cursor = e.target.result;
+      if (cursor) { all.push(cursor.value); cursor.continue(); }
+      else resolve(all.sort((a, b) => b.updatedAt - a.updatedAt));
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+function dbSave(chat) {
+  return new Promise((resolve, reject) => {
+    const tx = state.db.transaction(['chats'], 'readwrite');
+    const store = tx.objectStore('chats');
+    store.put(chat);
+    tx.onsuccess = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+function dbRemove(id) {
+  return new Promise((resolve, reject) => {
+    const tx = state.db.transaction(['chats'], 'readwrite');
+    state.db.transaction(['chats'], 'readwrite').objectStore('chats').delete(id);
+    tx.onsuccess = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// -----------------------------------------------------------------------
+// Chat management
+// -----------------------------------------------------------------------
+function newChatId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function nowTs() { return Date.now(); }
+
+async function loadChats() {
+  if (!state.ready) return;
+  const all = await dbLoadAll();
+  state.chats = {};
+  all.forEach((c) => { state.chats[c.id] = c; });
+  renderChatList();
+  if (state.currentChatId && state.chats[state.currentChatId]) {
+    renderChat(state.currentChatId);
+  } else if (all.length > 0) {
+    openChat(all[0].id);
+  } else {
+    createNewChat();
+  }
+}
+
+async function createNewChat() {
+  const id = newChatId();
+  const chat = { id, title: 'New chat', updatedAt: nowTs(), messages: [] };
+  state.chats[id] = chat;
+  await dbSave(chat);
+  state.currentChatId = id;
+  renderChatList();
+  renderChat(id);
+  scrollToBottom();
+  focusInput();
+}
+
+async function openChat(id) {
+  state.currentChatId = id;
+  renderChatList();
+  renderChat(id);
+  scrollToBottom();
+  focusInput();
+}
+
+async function renameChat(id, newTitle) {
+  const chat = state.chats[id];
+  if (!chat) return;
+  chat.title = newTitle.trim() || 'New chat';
+  chat.updatedAt = nowTs();
+  await dbSave(chat);
+  renderChatList();
+  renderChat(id);
+}
+
+async function deleteChat(id) {
+  const chat = state.chats[id];
+  if (!chat) return;
+  if (!confirm(`Delete chat "${chat.title}"?`)) return;
+  delete state.chats[id];
+  await dbRemove(id);
+  if (state.currentChatId === id) {
+    const remaining = Object.values(state.chats);
+    if (remaining.length > 0) openChat(remaining[0].id);
+    else createNewChat();
+  } else {
+    renderChatList();
+  }
+}
+
+function renderChatList() {
+  const list = els.chatList;
+  list.innerHTML = '';
+  const ordered = Object.values(state.chats).sort((a, b) => b.updatedAt - a.updatedAt);
+  ordered.forEach((chat) => {
+    const div = document.createElement('div');
+    div.className = 'chat-item' + (chat.id === state.currentChatId ? ' active' : '');
+    div.innerHTML = `
+      <div class="chat-title">${escapeHtml(chat.title)}</div>
+      <div class="chat-meta">${formatRelative(chat.updatedAt)}</div>
+      <div class="chat-actions">
+        <button class="action-btn" title="Rename" onclick="event.stopPropagation(); renamePrompt('${chat.id}')">✎</button>
+        <button class="action-btn" title="Delete" onclick="event.stopPropagation(); deleteChat('${chat.id}')">×</button>
+      </div>
+    `;
+    div.addEventListener('click', () => openChat(chat.id));
+    list.appendChild(div);
+  });
+}
+
+function renamePrompt(id) {
+  const chat = state.chats[id];
+  const name = prompt('Rename chat:', chat.title);
+  if (name !== null) renameChat(id, name);
+}
+
+// -----------------------------------------------------------------------
+// Rendering a chat
+// -----------------------------------------------------------------------
+function renderChat(chatId) {
+  const chat = state.chats[chatId];
+  if (!chat) return;
+  document.title = `AI Bot — ${escapeHtml(chat.title)}`;
+  els.messages.innerHTML = '';
+
+  if (chat.messages.length === 0) {
+    els.messages.innerHTML = '<div class="empty-state">Say something to get started.</div>';
+    return;
+  }
+
+  chat.messages.forEach((msg) => renderMessage(msg));
+  scrollToBottom();
+}
+
+function renderMessage(msg) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'message ' + (msg.role === 'user' ? 'user' : msg.role === 'ai' ? 'ai' : 'system');
+
+  let avatar = '👤';
+  if (msg.role === 'ai') avatar = '🤖';
+  else if (msg.role === 'system') avatar = '⚙️';
+
+  let contentHtml = '';
+  if (msg.toolStep) {
+    // collapsible tool step
+    contentHtml = renderToolStep(msg);
+  } else {
+    contentHtml = renderMarkdown(msg.content || '');
+  }
+
+  wrapper.innerHTML = `
+    <div class="avatar">${escapeHtml(avatar)}</div>
+    <div class="bubble">${contentHtml}</div>
+    ${msg.role !== 'system' ? `<span class="meta">${msg.role === 'user' ? 'You' : 'Assistant'} • ${formatTime(msg.ts)}</span>` : ''}
+  `;
+  els.messages.appendChild(wrapper);
+
+  // wire up copy buttons inside this message
+  wrapper.querySelectorAll('.copy-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const code = btn.dataset.code;
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1200);
+      });
+    });
+  });
+  return wrapper;
+}
+
+function renderToolStep(msg) {
+  const tool = msg.tool || 'tool';
+  const args = msg.args || {};
+  const result = msg.result !== undefined ? msg.result : '';
+  const argsHtml = typeof args === 'string' ? args : JSON.stringify(args, null, 2);
+  const resultHtml = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+  return `
+    <details class="tool-step" open>
+      <summary>
+        <span>🔧 Tool: <b>${escapeHtml(tool)}</b></span>
+        <span class="badge">step</span>
+      </summary>
+      <div class="step-body"><b>Args:</b><pre><code>${escapeHtml(argsHtml)}</code></pre></div>
+      ${result !== undefined ? `<div class="step-result"><b>Result:</b><pre><code>${escapeHtml(resultHtml)}</code></pre></div>` : ''}
+    </details>
+  `;
+}
+
+// -----------------------------------------------------------------------
+// Streaming completion
+// -----------------------------------------------------------------------
+let currentStreamController = null;
+
+async function postStream(messages, onChunk, onDone, onError) {
+  const body = {
+    model: els.modelSelect.value === 'auto' ? '' : els.modelSelect.value,
+    messages: messages.map((m) => ({ role: m.role === 'ai' ? 'assistant' : m.role, content: m.content })),
+    temperature: parseFloat(els.tempSlider.value) || 0.7,
+    stream: true,
+  };
+
+  const ctrl = new AbortController();
+  currentStreamController = ctrl;
+
+  try {
+    const res = await fetch(CHAT_COMPLETION_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      throw new Error(`Server returned ${res.status}: ${txt || res.statusText}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let leftover = '';
+
+    while (true) {
+      if (ctrl.signal.aborted) break;
+      const { value, done } = await reader.read();
+      if (done) break;
+      leftover += decoder.decode(value, { stream: true });
+      const parts = leftover.split('\n');
+      leftover = parts.pop(); // incomplete line stays
+      for (const part of parts) {
+        if (ctrl.signal.aborted) break;
+        handleSseLine(part, onChunk);
+      }
+    }
+    // flush leftover
+    if (leftover.trim()) handleSseLine(leftover, onChunk);
+    onDone();
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      // stopped by user
+      onDone();
+      return;
+    }
+    onError(err);
+  } finally {
+    currentStreamController = null;
+  }
+}
+
+function handleSseLine(line, onChunk) {
+  line = line.trim();
+  if (!line) return;
+  if (line === 'data: [DONE]') return;
+  if (line.startsWith('data:')) {
+    const json = line.slice(5).trim();
+    try {
+      const data = JSON.parse(json);
+      const delta = data.choices && data.choices[0] && data.choices[0].delta;
+      if (delta && delta.content) onChunk(delta.content);
+      // capture tokens/sec if present in final usage/timings
+      if (data.usage && data.usage.tokens_per_second !== undefined) {
+        state.lastTokensPerSec = data.usage.tokens_per_second;
+      }
+    } catch (e) { /* ignore malformed chunk */ }
+  }
+}
+
+// -----------------------------------------------------------------------
+// Assistant message streaming + agent tool loop
+// -----------------------------------------------------------------------
+function startAssistantBubble() {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'message ai';
+  wrapper.innerHTML = `
+    <div class="avatar">🤖</div>
+    <div class="bubble"><span class="cursor">▋</span></div>
+    <span class="meta">Assistant</span>
+  `;
+  els.messages.appendChild(wrapper);
+  ui.currentAssistantEl = wrapper.querySelector('.bubble');
+  ui.currentAssistantText = '';
+  ui.streaming = true;
+  scrollToBottom();
+  return wrapper;
+}
+
+function appendStreamedText(text) {
+  ui.currentAssistantText += text;
+  ui.currentAssistantEl.innerHTML = renderMarkdown(ui.currentAssistantText) + '<span class="cursor">▋</span>';
+  scrollToBottom();
+}
+
+function finalizeAssistant(text, toolCall) {
+  ui.currentAssistantEl.innerHTML = renderMarkdown(text);
+  ui.currentAssistantEl.querySelectorAll('.copy-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      navigator.clipboard.writeText(btn.dataset.code).then(() => {
+        btn.textContent = 'Copied!'; btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1200);
+      });
+    });
+  });
+  ui.streaming = false;
+  ui.currentAssistantEl = null;
+  scrollToBottom();
+  return toolCall;
+}
+
+// Find a tool-call JSON in assistant text
+function findToolCall(text) {
+  const m = text.match(/\{\s*"tool"\s*:\s*"([^"]+)"\s*,\s*"args"\s*:\s*\{[\s\S]*?\}\s*\}/);
+  if (!m) return null;
+  try {
+    const parsed = JSON.parse(m[0]);
+    if (parsed.tool && typeof parsed.args === 'object') return parsed;
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+// -----------------------------------------------------------------------
+// Tools
+// -----------------------------------------------------------------------
+const TOOLS = {
+  calculator: {
+    desc: 'Evaluate a math expression.',
+    run: async (args) => {
+      const expr = String(args.expression || '');
+      if (!/^[0-9\s\+\-\*\/\(\)\.\%\,a-zA-Z]+$/.test(expr)) {
+        return { error: 'Invalid characters in expression.' };
+      }
+      try {
+        // Safe-ish eval using Function with only Math exposed
+        const fn = new Function('Math', 'return (' + expr + ');');
+        const result = fn(Math);
+        if (typeof result !== 'number' || !isFinite(result)) throw new Error('not a number');
+        return { result };
+      } catch (e) {
+        return { error: 'Could not evaluate expression: ' + e.message };
+      }
+    },
+  },
+  current_datetime: {
+    desc: 'Return the current date and time.',
+    run: async () => {
+      const now = new Date();
+      return { result: now.toISOString() + '  (' + now.toLocaleString() + ')' };
+    },
+  },
+  read_file: {
+    desc: 'Read a text/PDF/CSV file the user selects via a file picker.',
+    run: async () => {
+      return { needsFilePicker: true, prompt: 'Please select a text, PDF, or CSV file to read.' };
+    },
+  },
+  save_note: {
+    desc: 'Save a note to local storage.',
+    run: async (args) => {
+      const title = String(args.title || 'Note');
+      const content = String(args.content || '');
+      let notes = JSON.parse(localStorage.getItem('ai-bot-notes') || '[]');
+      notes.push({ title, content, created: nowTs() });
+      localStorage.setItem('ai-bot-notes', JSON.stringify(notes));
+      return { result: 'Note saved: "' + escapeHtml(title) + '" (' + notes.length + ' total notes).' };
+    },
+  },
+  search_files: {
+    desc: 'Search within files loaded via read_file.',
+    run: async (args) => {
+      const query = String(args.query || '').toLowerCase();
+      if (!query) return { error: 'Provide a search query.' };
+      const matches = [];
+      for (const [name, content] of Object.entries(state.toolFileContents)) {
+        const lines = content.split('\n');
+        lines.forEach((line, idx) => {
+          if (line.toLowerCase().includes(query)) {
+            matches.push({ file: name, line: idx + 1, text: line.trim().slice(0, 200) });
+          }
+        });
+      }
+      return { result: matches.length ? matches : 'No matches found.' };
+    },
+  },
+};
+
+// Execute a single tool, returns {result} or {error}
+async function executeTool(toolCall) {
+  const tool = TOOLS[toolCall.tool];
+  if (!tool) return { error: 'Unknown tool: ' + toolCall.tool };
+  try {
+    return await tool.run(toolCall.args || {});
+  } catch (e) {
+    return { error: 'Tool error: ' + e.message };
+  }
+}
+
+// -----------------------------------------------------------------------
+// File reading (text / CSV / PDF)
+// -----------------------------------------------------------------------
+let filePickerResolve = null;
+
+function pickFile() {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.txt,.md,.csv,.json,.pdf,.log,.py,.js,.html,.css,.xml,.yaml,.yml,.ini,.toml';
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (!file) { resolve(null); return; }
+      resolve(file);
+    };
+    input.click();
+  });
+}
+
+async function readFileContent(file) {
+  const name = file.name;
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase();
+  if (ext === '.pdf') {
+    const buffer = await arrayBufferFromFile(file);
+    const text = await extractPdfText(buffer);
+    state.toolFileContents[name] = text || '';
+    return { result: text || '(No text extracted from PDF)' };
+  } else if (ext === '.csv') {
+    const text = await textFromFile(file);
+    state.toolFileContents[name] = text;
+    return { result: 'CSV loaded (' + text.split('\n').length + ' lines). Preview:\n' + text.split('\n').slice(0, 10).join('\n') };
+  } else {
+    const text = await textFromFile(file);
+    state.toolFileContents[name] = text;
+    const preview = text.slice(0, 2000);
+    return { result: 'Text file loaded (' + text.length + ' chars). Preview:\n' + preview + (text.length > 2000 ? '…' : '') };
+  }
+}
+
+function arrayBufferFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsArrayBuffer(file);
+  });
+}
+function textFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsText(file);
+  });
+}
+
+// Compact PDF text extractor (no libraries). Handles uncompressed and FlateDecode streams.
+async function extractPdfText(buffer) {
+  const data = new Uint8Array(buffer);
+  let str = '';
+  for (let i = 0; i < data.length; i++) str += String.fromCharCode(data[i]);
+  const texts = [];
+  const streamRegex = /stream\r?\n([\s\S]*?)endstream/g;
+  let m;
+  while ((m = streamRegex.exec(str)) !== null) {
+    const raw = m[1];
+    const before = str.slice(Math.max(0, m.index - 600), m.index);
+    const isFlate = /\/FlateDecode/.test(before);
+    let decompressed = raw;
+    if (isFlate) {
+      try {
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i) & 0xff;
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        const buf = await new Response(stream).arrayBuffer();
+        decompressed = new TextDecoder().decode(buf);
+      } catch (e) { decompressed = raw; }
+    }
+    const btRegex = /BT([\s\S]*?)ET/g;
+    let bm;
+    while ((bm = btRegex.exec(decompressed)) !== null) {
+      const block = bm[1];
+      block.replace(/\(([^\)]*)\)/g, (_, s) => { texts.push(decodePdfString(s)); return ''; });
+      block.replace(/\[([\s\S]*?)\]/g, (_, arr) => {
+        arr.split(')(').forEach((t) => { if (t) texts.push(decodePdfString(t.replace(/^\(|\)$/g, ''))); });
+        return '';
+      });
+    }
+  }
+  return texts.filter((t) => t.trim()).join('\n');
+}
+function decodePdfString(s) {
+  // handle hex strings <...>
+  if (s.startsWith('<') && s.endsWith('>')) {
+    const hex = s.slice(1, -1).replace(/\s/g, '');
+    let out = '';
+    for (let i = 0; i + 1 < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16));
+    return out;
+  }
+  // handle simple octal escapes \ddd
+  return s.replace(/\\([0-7]{1,3})/g, (_, d) => String.fromCharCode(parseInt(d, 8)));
+}
+
+// -----------------------------------------------------------------------
+// Core send flow (with agent tool loop)
+// -----------------------------------------------------------------------
+async function sendMessage() {
+  const text = els.userInput.value.trim();
+  if (!text || ui.streaming) return;
+  els.userInput.value = '';
+  els.userInput.style.height = 'auto';
+
+  const chat = state.chats[state.currentChatId];
+  if (!chat) return;
+
+  // append user message
+  const userMsg = { role: 'user', content: text, ts: nowTs() };
+  chat.messages.push(userMsg);
+  renderMessage(userMsg);
+  await dbSave(chat);
+  scrollToBottom();
+
+  showBanner(null);
+  setInputEnabled(false);
+
+  try {
+    await runAgentLoop(chat);
+  } catch (err) {
+    showBanner('Error: ' + escapeHtml(err.message), 'error');
+  } finally {
+    setInputEnabled(true);
+    focusInput();
+  }
+}
+
+async function runAgentLoop(chat) {
+  let rounds = 0;
+  let messages = buildMessages(chat);
+
+  while (rounds < MAX_TOOL_ROUNDS + 1) {
+    rounds++;
+    const assistantText = await streamAssistant(messages);
+    if (assistantText === null) return; // aborted / error
+
+    // record assistant message
+    const assistantMsg = { role: 'ai', content: assistantText, ts: nowTs() };
+    chat.messages.push(assistantMsg);
+    await dbSave(chat);
+
+    // If agent mode, check for a tool call
+    if (state.agentMode) {
+      const toolCall = findToolCall(assistantText);
+      if (toolCall) {
+        // render tool step
+        const toolMsg = { role: 'system', toolStep: true, tool: toolCall.tool, args: toolCall.args, ts: nowTs() };
+        chat.messages.push(toolMsg);
+        await dbSave(chat);
+        renderMessage(toolMsg);
+        scrollToBottom();
+
+        const result = await executeTool(toolCall);
+
+        // handle file picker (async user gesture)
+        if (result.needsFilePicker) {
+          showBanner(result.prompt || 'Select a file.', 'info');
+          const file = await pickFile();
+          showBanner(null);
+          if (!file) {
+            // user cancelled: feed back and continue
+            chat.messages.push({ role: 'system', content: '[Tool read_file] User cancelled file selection.', ts: nowTs() });
+            await dbSave(chat);
+            messages = buildMessages(chat);
+            continue;
+          }
+          const fileResult = await readFileContent(file);
+          result.result = fileResult.result || fileResult.error;
+          delete result.needsFilePicker;
+          delete result.prompt;
+        }
+
+        // update tool step with result
+        toolMsg.result = result.result !== undefined ? result.result : result.error;
+        await dbSave(chat);
+        renderChat(state.currentChatId); // re-render to show result
+        scrollToBottom();
+
+        // feed result back to model
+        chat.messages.push({ role: 'system', content: '[Tool result for ' + toolCall.tool + ']: ' + String(result.result !== undefined ? result.result : result.error), ts: nowTs() });
+        await dbSave(chat);
+        messages = buildMessages(chat);
+        continue;
+      }
+    }
+    // no tool call -> done
+    return;
+  }
+  // max rounds reached
+  showBanner('Agent reached the maximum tool-call rounds.', 'warn');
+}
+
+function buildMessages(chat) {
+  const sys = els.sysPrompt.value.trim();
+  const messages = [];
+  if (sys) messages.push({ role: 'system', content: sys });
+  if (state.agentMode) {
+    messages.push({
+      role: 'system',
+      content: 'TOOLS AVAILABLE. When you need to act, output ONLY a JSON object on its own line: {"tool":"name","args":{...}}. Available tools: calculator(expression), current_datetime(), read_file() [user picks file], save_note({title,content}), search_files({query}). Wait for the tool result before continuing. Do not call more than a few tools.',
+    });
+  }
+  chat.messages.forEach((m) => {
+    if (m.role === 'user') messages.push({ role: 'user', content: m.content });
+    else if (m.role === 'ai') messages.push({ role: 'assistant', content: m.content });
+    else if (m.role === 'system' && !m.toolStep) messages.push({ role: 'system', content: m.content });
+  });
+  return messages;
+}
+
+async function streamAssistant(messages) {
+  return new Promise((resolve) => {
+    const wrapper = startAssistantBubble();
+    let accumulated = '';
+    let errored = false;
+
+    postStream(
+      messages,
+      (chunk) => { accumulated += chunk; appendStreamedText(accumulated); },
+      () => {
+        finalizeAssistant(accumulated);
+        resolve(accumulated);
+      },
+      (err) => {
+        errored = true;
+        ui.currentAssistantEl.innerHTML = renderMarkdown(accumulated) + '<div style="color:var(--danger);font-size:12px;margin-top:6px">Error: ' + escapeHtml(err.message) + '</div>';
+        ui.streaming = false;
+        ui.currentAssistantEl = null;
+        scrollToBottom();
+        resolve(null);
+      }
+    );
+  });
+}
+
+// -----------------------------------------------------------------------
+// Server health / status
+// -----------------------------------------------------------------------
+let healthInterval = null;
+let failingSince = null;
+
+async function checkHealth() {
+  try {
+    const res = await fetch(HEALTH_URL, { method: 'GET', cache: 'no-store' });
+    if (res.ok) {
+      setServerStatus(true);
+      failingSince = null;
+    } else {
+      setServerStatus(false, `HTTP ${res.status}`);
+    }
+  } catch (e) {
+    setServerStatus(false, 'Connection refused');
+  }
+}
+function setServerStatus(ok, detail) {
+  const dot = els.statusDot;
+  const text = els.statusText;
+  if (ok) {
+    dot.className = 'dot ok';
+    text.textContent = 'Model loaded · ' + (state.lastTokensPerSec ? '≈ ' + state.lastTokensPerSec.toFixed(1) + ' tok/s · ' : '') + 'http://127.0.0.1:8080';
+    els.statusBanner.style.display = 'none';
+  } else {
+    dot.className = 'dot err';
+    text.textContent = 'Server not running (' + (detail || '') + ')';
+    if (!els.statusBanner.style.display || els.statusBanner.style.display === 'none') {
+      showBanner('llama-server is not reachable at http://127.0.0.1:8080. Start it with start.bat / start.sh.', 'error');
+    }
+  }
+}
+
+function showBanner(msg, kind) {
+  if (!msg) { els.statusBanner.style.display = 'none'; return; }
+  els.statusBanner.style.display = 'flex';
+  els.bannerTitle.textContent = kind === 'error' ? 'Error' : kind === 'warn' ? 'Notice' : 'Info';
+  els.bannerMsg.textContent = msg;
+  els.statusBanner.style.background = kind === 'error' ? 'rgba(220,38,38,0.12)' : kind === 'warn' ? 'rgba(234,179,8,0.12)' : 'rgba(34,197,94,0.12)';
+  els.statusBanner.style.borderColor = kind === 'error' ? 'rgba(220,38,38,0.3)' : kind === 'warn' ? 'rgba(234,179,8,0.3)' : 'rgba(34,197,94,0.3)';
+}
+
+function startHealthPolling() {
+  if (healthInterval) clearInterval(healthInterval);
+  checkHealth();
+  healthInterval = setInterval(checkHealth, 4000);
+}
+
+// -----------------------------------------------------------------------
+// Input handling
+// -----------------------------------------------------------------------
+function setInputEnabled(en) {
+  els.userInput.disabled = !en;
+  els.sendBtn.disabled = !en;
+  els.stopBtn.style.display = en && ui.streaming ? 'inline-block' : 'none';
+}
+function focusInput() { els.userInput.focus(); }
+
+els.userInput.addEventListener('input', () => {
+  els.userInput.style.height = 'auto';
+  els.userInput.style.height = Math.min(els.userInput.scrollHeight, 160) + 'px';
+});
+els.userInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+els.tempSlider.addEventListener('input', () => { els.tempVal.textContent = els.tempSlider.value; });
+els.sendBtn.addEventListener('click', sendMessage);
+els.stopBtn.addEventListener('click', () => {
+  if (currentStreamController) currentStreamController.abort();
+  els.stopBtn.style.display = 'none';
+  ui.streaming = false;
+});
+
+els.sysPrompt.addEventListener('input', () => {
+  els.sysLen.textContent = els.sysPrompt.value.length + ' chars';
+});
+
+// -----------------------------------------------------------------------
+// Sidebar actions
+// -----------------------------------------------------------------------
+els.newChatBtn.addEventListener('click', createNewChat);
+els.exportJsonBtn.addEventListener('click', exportAllJson);
+els.exportMdBtn.addEventListener('click', exportCurrentMd);
+els.clearDbBtn.addEventListener('click', async () => {
+  if (!confirm('Clear all saved chats? This cannot be undone.')) return;
+  state.chats = {};
+  state.currentChatId = null;
+  if (state.db) {
+    const tx = state.db.transaction(['chats'], 'readwrite');
+    tx.objectStore('chats').clear();
+    tx.onsuccess = () => { createNewChat(); };
+  }
+});
+
+function exportAllJson() {
+  const all = Object.values(state.chats);
+  const blob = new Blob([JSON.stringify(all, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, 'ai-bot-chats.json');
+}
+function exportCurrentMd() {
+  const chat = state.chats[state.currentChatId];
+  if (!chat) return;
+  let md = '# ' + chat.title + '\n\n';
+  chat.messages.forEach((m) => {
+    const role = m.role === 'user' ? '## You' : m.role === 'ai' ? '## Assistant' : '## System';
+    md += role + '\n\n' + (m.content || '') + '\n\n';
+  });
+  const blob = new Blob([md], { type: 'text/markdown' });
+  downloadBlob(blob, 'ai-bot-chat-' + chat.title.replace(/\s+/g, '_') + '.md');
+}
+function downloadBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// -----------------------------------------------------------------------
+// Markdown renderer (built-in, no libraries)
+// -----------------------------------------------------------------------
+function renderMarkdown(text) {
+  // --- Code blocks first: extract from RAW text (code content kept raw, escaped at render time)
+  const codeBlocks = [];
+  let working = text;
+  working = working.replace(/```([\w+-]*)\n([\s\S]*?)```/g, (match, lang, code) => {
+    const id = '___CB' + codeBlocks.length + '___';
+    codeBlocks.push({ lang: lang || 'text', code: code }); // raw code
+    return id;
+  });
+
+  // --- Block-level processing on RAW (unescaped) text so that > # - * are detected
+  const lines = working.split('\n');
+  let out = '';
+  let inList = false;
+  let inBlockQuote = false;
+
+  function closeList() { if (inList) { out += '</ul>\n'; inList = false; } }
+  function closeBQ() { if (inBlockQuote) { out += '</blockquote>\n'; inBlockQuote = false; } }
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+
+    // code block placeholder -> pre
+    if (/^___CB\d+___$/.test(line)) {
+      closeList(); closeBQ();
+      const cb = codeBlocks[parseInt(line.replace(/___CB|___/g, ''), 10)];
+      const langClass = 'lang-' + escapeHtml(cb.lang);
+      out += '<div class="code-wrap"><pre><code class="' + langClass + '">' + escapeHtml(cb.code) +
+        '</code><button class="copy-btn" data-code="' + escapeHtmlAttr(cb.code) + '">Copy</button></pre></div>\n';
+      continue;
+    }
+
+    // horizontal rule
+    if (/^(\*\*\*|---|___)\s*$/.test(line)) {
+      closeList(); closeBQ();
+      out += '<hr>\n';
+      continue;
+    }
+
+    // heading
+    const h = line.match(/^(#{1,6})\s+(.*)$/);
+    if (h) {
+      closeList(); closeBQ();
+      const level = h[1].length;
+      out += '<h' + level + '>' + inline(escapeHtml(h[2])) + '</h' + level + '>\n';
+      continue;
+    }
+
+    // blockquote (detected on raw line starting with '> ')
+    if (line.startsWith('> ')) {
+      if (!inBlockQuote) { out += '<blockquote>\n'; inBlockQuote = true; }
+      out += ' ' + inline(escapeHtml(line.slice(2))) + '<br>\n';
+      continue;
+    } else {
+      closeBQ();
+    }
+
+    // list
+    const listm = line.match(/^([\s\t]*)([\*\-]|\d+\.)\s+(.*)$/);
+    if (listm) {
+      if (!inList) { out += '<ul>\n'; inList = true; }
+      out += '<li>' + inline(escapeHtml(listm[3])) + '</li>\n';
+      continue;
+    } else {
+      closeList();
+    }
+
+    // blank line
+    if (line.trim() === '') {
+      out += '\n';
+      continue;
+    }
+
+    // paragraph text: escape HTML, then apply inline formatting
+    out += '<p>' + inline(escapeHtml(line)) + '</p>\n';
+  }
+  closeList(); closeBQ();
+
+  // Replace any remaining code-block placeholders (handles code blocks embedded mid-line).
+  out = out.replace(/___CB(\d+)___/g, (match, index) => {
+    const cb = codeBlocks[parseInt(index, 10)];
+    if (!cb) return match;
+    const langClass = 'lang-' + escapeHtml(cb.lang);
+    return '<div class="code-wrap"><pre><code class="' + langClass + '">' + escapeHtml(cb.code) +
+      '</code><button class="copy-btn" data-code="' + escapeHtmlAttr(cb.code) + '">Copy</button></pre></div>';
+  });
+
+  return out;
+}
+
+// NOTE: the placeholder replacement above handles code blocks inline, so codeBlocks
+// array is used for the data-code attribute only.
+
+function inline(text) {
+  // links
+  text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  // inline code
+  text = text.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // bold
+  text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  // italic
+  text = text.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // line breaks inside paragraphs
+  return text;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+function escapeHtmlAttr(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+}
+
+// -----------------------------------------------------------------------
+// Time helpers
+// -----------------------------------------------------------------------
+function formatTime(ts) {
+  const d = new Date(ts);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+function formatRelative(ts) {
+  const d = new Date(ts);
+  const now = Date.now();
+  const diff = (now - ts) / 1000;
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return d.toLocaleDateString();
+}
+
+// -----------------------------------------------------------------------
+// Scroll / layout helpers
+// -----------------------------------------------------------------------
+function scrollToBottom() {
+  requestAnimationFrame(() => {
+    els.messages.scrollTop = els.messages.scrollHeight;
+  });
+}
+
+// Mobile sidebar
+els.menuBtn.addEventListener('click', () => {
+  els.sidebar.classList.toggle('open');
+  els.backdrop.classList.toggle('visible');
+});
+els.backdrop.addEventListener('click', () => {
+  els.sidebar.classList.remove('open');
+  els.backdrop.classList.remove('visible');
+});
+
+// -----------------------------------------------------------------------
+// Initialize
+// -----------------------------------------------------------------------
+async function init() {
+  initTheme();
+  initAgentMode();
+
+  // load persisted system prompt
+  const savedSys = localStorage.getItem('ai-bot-system-prompt');
+  if (savedSys) els.sysPrompt.value = savedSys;
+  els.sysLen.textContent = els.sysPrompt.value.length + ' chars';
+  els.sysPrompt.addEventListener('change', () => {
+    localStorage.setItem('ai-bot-system-prompt', els.sysPrompt.value);
+  });
+
+  // IndexedDB
+  try {
+    state.db = await openDB();
+    state.ready = true;
+    await loadChats();
+  } catch (e) {
+    console.error('IndexedDB unavailable:', e);
+    showBanner('Warning: browser storage (IndexedDB) is unavailable. Chat history will not persist.', 'warn');
+    // still allow chatting without persistence
+    state.chats = {};
+    createNewChat();
+  }
+
+  startHealthPolling();
+}
+
+init();
+
+</script>
+</body>
+</html>
