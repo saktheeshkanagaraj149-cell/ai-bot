@@ -1,0 +1,26 @@
+AI Bot - Quick Start
+====================
+
+1. Plug in the USB drive.
+2. Open the "AI-Bot" folder and double-click  start.bat
+3. Wait until the browser opens  http://127.0.0.1:8080/  (10-60 seconds).
+4. Chat. Everything runs on this PC - no internet, no install.
+
+KEEP the black command window open while you chat - closing it stops the model.
+To stop: press any key in that window (or close it).
+
+Chat page features: chat history (saved in this browser), search, rename,
+attach code files (paperclip), copy code buttons, regenerate, dark/light theme,
+Settings (sliders icon) for response style, answer length and system prompt.
+
+Models (in the "models" folder) - picked automatically:
+  CODER  qwen2.5-3b-coder-ft-q4_k_m.gguf   fine-tuned for coding help (default)
+  3B     qwen2.5-3b-instruct-q4_k_m.gguf   general chat
+  1.5B   qwen2.5-1.5b-instruct-q4_k_m.gguf low-RAM PCs (under 6 GB RAM)
+
+To pick one yourself, open a command prompt in this folder and run, e.g.:
+  set AI_BOT_MODEL=3B && start.bat
+
+Needs: Windows 10/11, 64-bit, 8 GB RAM recommended.
+If Windows SmartScreen warns about llama-server.exe, click "More info" -> "Run anyway".
+If the browser says "not reachable", wait a little longer - the model is still loading.

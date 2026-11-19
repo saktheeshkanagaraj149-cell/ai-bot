@@ -21,8 +21,9 @@ set "SCRIPT_DIR=%~dp0"
 if not defined SCRIPT_DIR set "SCRIPT_DIR=%CD%"
 
 rem ------------------------------------------------------------------
-rem  User override: set AI_BOT_MODEL=1.5B or 3B before running
+rem  User override: set AI_BOT_MODEL=CODER, 3B or 1.5B before running
 rem  Example: set AI_BOT_MODEL=1.5B && start.bat
+rem  Default: CODER (fine-tuned coding model) if present and RAM >= 6 GB
 rem ------------------------------------------------------------------
 
 rem ------------------------------------------------------------------
@@ -40,6 +41,8 @@ rem ------------------------------------------------------------------
 if not defined AI_BOT_MODEL (
     if %TOTAL_RAM_MB% LSS 6144 (
         set "CHOSEN_MODEL=1.5B"
+    ) else if exist "%SCRIPT_DIR%models\qwen2.5-3b-coder-ft-q4_k_m.gguf" (
+        set "CHOSEN_MODEL=CODER"
     ) else (
         set "CHOSEN_MODEL=3B"
     )
@@ -50,14 +53,17 @@ if not defined AI_BOT_MODEL (
 rem ------------------------------------------------------------------
 rem  Map model choice to filename + label
 rem ------------------------------------------------------------------
-if /I "%CHOSEN_MODEL%"=="1.5B" (
+if /I "%CHOSEN_MODEL%"=="CODER" (
+    set "MODEL_FILE=qwen2.5-3b-coder-ft-q4_k_m.gguf"
+    set "MODEL_LABEL=Qwen2.5-3B Coder (fine-tuned for code chat)"
+) else if /I "%CHOSEN_MODEL%"=="1.5B" (
     set "MODEL_FILE=qwen2.5-1.5b-instruct-q4_k_m.gguf"
     set "MODEL_LABEL=Qwen2.5-1.5B-Instruct  (fast, low-RAM PCs)"
 ) else if /I "%CHOSEN_MODEL%"=="3B" (
     set "MODEL_FILE=qwen2.5-3b-instruct-q4_k_m.gguf"
     set "MODEL_LABEL=Qwen2.5-3B-Instruct    (better quality)"
 ) else (
-    echo ERROR: Invalid AI_BOT_MODEL "%AI_BOT_MODEL%". Use 1.5B or 3B.
+    echo ERROR: Invalid AI_BOT_MODEL "%AI_BOT_MODEL%". Use CODER, 3B or 1.5B.
     echo.
     pause
     exit /b 1
@@ -65,7 +71,8 @@ if /I "%CHOSEN_MODEL%"=="1.5B" (
 
 set "BIN_DIR=%SCRIPT_DIR%bin"
 set "MODEL_PATH=%SCRIPT_DIR%models\%MODEL_FILE%"
-set "UI_PATH=%SCRIPT_DIR%app\index.html"
+set "APP_DIR=%SCRIPT_DIR%app"
+set "UI_URL=http://127.0.0.1:8080/"
 set "SERVER_EXE=%BIN_DIR%\llama-server.exe"
 
 rem ------------------------------------------------------------------
@@ -105,7 +112,7 @@ echo [AI Bot] Model     : %MODEL_LABEL%
 echo [AI Bot] Auto-pick : based on %TOTAL_RAM_MB% MB RAM
 echo [AI Bot] Threads   : %THREADS%
 echo [AI Bot] Context   : 4096
-echo [AI Bot] API       : http://127.0.0.1:8080
+echo [AI Bot] UI + API  : http://127.0.0.1:8080
 echo.
 
 rem ------------------------------------------------------------------
@@ -118,14 +125,15 @@ rem ------------------------------------------------------------------
 rem  Start llama-server in the background (same console window)
 rem ------------------------------------------------------------------
 echo [AI Bot] Starting llama-server...
-start /b "" "%SERVER_EXE%" -m "%MODEL_PATH%" -c 4096 -t %THREADS% --host 127.0.0.1 --port 8080
+start /b "" "%SERVER_EXE%" -m "%MODEL_PATH%" -c 4096 -t %THREADS% --host 127.0.0.1 --port 8080 --path "%APP_DIR%"
 
 rem ------------------------------------------------------------------
-rem  Wait for the server to be ready (poll /health, up to 60 seconds)
+rem  Wait for the server to be ready (poll /health, up to 120 seconds;
+rem  loading a 2 GB model from a slow pendrive can take a while)
 rem ------------------------------------------------------------------
 echo [AI Bot] Waiting for server to be ready...
 set "READY=0"
-for /L %%i in (1,1,60) do (
+for /L %%i in (1,1,120) do (
     powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 2 -ErrorAction Stop; if ($r.StatusCode -eq 200) { exit 0 } else { exit 1 } } catch { exit 1 }" >nul 2>&1
     if !errorlevel! equ 0 (
         set "READY=1"
@@ -144,16 +152,21 @@ exit /b 1
 
 :server_ready
 echo [AI Bot] Server is ready.
-echo [AI Bot] Opening %UI_PATH% in your default browser...
-start "" "%UI_PATH%"
+echo [AI Bot] Opening %UI_URL% in your default browser...
+start "" "%UI_URL%"
 
 echo.
 echo ========================================
-echo   The bot is running in your browser.
-echo   Close this command window to stop the server.
-echo   Watch the console window for server output.
+echo   The bot is running in your browser:
+echo       %UI_URL%
+echo.
+echo   KEEP THIS WINDOW OPEN while you chat.
+echo   Closing it stops the model.
 echo ========================================
 echo.
 
-pause
+rem  Keep the window alive; any key here stops the server cleanly.
+echo Press any key to STOP the bot...
+pause >nul
+taskkill /f /im llama-server.exe >nul 2>&1
 endlocal
